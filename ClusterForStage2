@@ -1,0 +1,255 @@
+#Author: Mounika Chillamcherla
+
+# This class clusters the instances in to different clusters, based on the similar sense or meaning.
+# We are using Hierarchical clustering of Agglomerative approach to cluster the instances in the given file.
+#We have 2 clustering algorithms: 1. Developed by Team Paris 2.Using a module called FastCluster
+#Both the algorithms take a distance matrix. Similarity of 2 instances is measured by jaro_distance
+#As we need distance matrix, we just substract the similarity score obtained from jaro_distance from 1
+
+#Basic idea of clusering developed by team is:
+#Start by assigning each item to its own cluster, so that if you have N items, you now have N clusters, each containing just one item.
+# Find the closest (most similar) pair of clusters and merge them into a single cluster, so that now you have one less cluster.
+# The lowest the distance between the two instances, the more similar the instances are.
+# Update the distance matrix and the cluster list for the merged clusters.
+#Repeat this step until the lowest distance of two instances is less than 0.26.
+
+
+import jellyfish
+from jellyfish import jaro_distance
+import collections
+import numpy as np
+import numpy
+import scipy.spatial.distance as ssd
+from scipy.cluster.hierarchy import fcluster
+import fastcluster
+import Sense
+import Instance
+class cluster(object):
+    """description of class"""
+    def __init__(self, **kwargs):
+        return super().__init__(**kwargs)
+
+    # This function calculates the difference of the distances of two instances.
+    # If a is greater than b, returns a-b else return b-a
+    def distance(self,a,b):
+        if(a>b):
+            return a-b;
+        else:
+            return b-a;
+
+    #This function calculates the mininum of the two values (distances of two instances)
+    #Returns the minimum
+    def min(self,a,b):
+        if(a<b):
+            return a;
+        else:
+            return b;
+
+    #This function merges two clusters of indices x and y in the distance matrix.
+    def merge(self,x, y, table):
+        #loops through the whole table to change the row x and column x at each i
+        for i in range(len(table)):
+            #assigns the minumum of two distances at column x
+            table[i][x] = self.min(table[i][x], table[i][y])
+            #assigns the minumum of two distances at row x	
+            table[x][i] = self.min(table[x][i], table[y][i])	
+
+        temp_Table=numpy.array(table)
+	    #the next line deletes the row with index 'y'
+        temp_Table=numpy.delete(temp_Table, y, axis =0)
+	    #the next line deletes the column with index 'y'
+        temp_Table=numpy.delete(temp_Table, y, axis =1)
+        #diagonal elements in the matrix is 0 as each instance is similar to itself.
+        temp_Table[x][x] = 0
+        return temp_Table
+
+    # This function updates the cluster list after the instances were merged in to a single cluster
+    # Add the elements which are present in the list at index y to the list at index x
+    def updateInClusterList(self, x,y ,dictionaryTemp):
+        #Get all the items in the cluster
+        items = list(dictionaryTemp.items())
+        #items[x] gives the key-value pair located at instance x. Ex: [1, [1,3]]
+        #instances are stored as values in the dictionary,
+        #so take the value located at index x by using items[x][1]
+        #clusterX stores all the elements at index x
+        clusterX = items[x][1];
+	    #items[y] gives the key-value pair at index 'y', 
+	    #as we just need the value, we take items[y][1]
+        #clusterY stores all the elements at index y
+        clusterY = items[y][1];
+        #key to be removed from the list located at index y
+        keyToBeRemoved = items[y][0];
+        #For each of the elements in the clusterY, add them to clusterX.
+        #Therefore, performing the merge of two clusters.
+        for i in clusterY:		
+            clusterX.append(i);
+        #Delecte the list at index 'y'
+        del dictionaryTemp[keyToBeRemoved]
+        return dictionaryTemp;
+
+    def distanceMatrix(self, instances):
+        #length stores the length of the instances of input file. say N
+        length = len(instances)
+        #table is a distance matrix with N rows and N columns
+        #Initially all the elements in the table are set to 0
+        table= [ [ 0 for i in range(length) ] for j in range(length) ]
+        #We are computing only the upper-right part of the table
+        #Replicating to the lower left part of the table as distance between x and y is same as distance between y and x
+        #Diagonal elements are set to 0, as each instance is 0% different to itself
+        d1=0;
+        while(d1 < length):
+            d2 = d1 + 1;
+            while(d2 < length):   
+                #Calculating distance for [0][1], [0][2],... [1][2] and so on.
+                #jaro-distance gives the similarity of two instances
+                #As we are computing the distance matrix, we are substracting the similarity measure (jaro-distance) from 1
+                #If the jaro-distance is 0.6, we compute the distance = 1-0.6= 0.4 Insert this 0.4 at appropriate position in the table         
+                table[d1][d2]= round(1 - jaro_distance(instances[d1].text,instances[d2].text), 4)
+                # table[1][0] = table[0][1]., so just copying them
+                table[d2][d1] = table[d1][d2];
+                d2 = d2 +1;
+            d1 = d1 + 1;
+            
+        return table	
+    
+    #This algorithm is developed by team
+    def hierarchical_clusteringByTeam(self, instances):
+        # clusters is dictionary which stores the clusters, as they are formed.
+        #It is empty initially
+        clusters = {};
+        # completeSenses is the list of clusters of all the senses. If a file has 5 senses. It stores all the 5 senses
+        completeSenses = list()
+        i=0;
+        #This while loop puts each instance in a seperate cluster.
+        #If the text file contains 100 instances, this loop give 100 clusters, each instance in a seperate cluster.
+        while(i < len(instances)):
+            clust = [];
+            clust.append(i);
+            clusters[i] = clust;
+            i=i+1;
+        length = len(instances)
+        #length is the number of instances of input file.
+
+	    # table stores the distance matrix of instances
+        table = self.distanceMatrix(instances)
+        #threshold value is set to 0.26, based on the observation of some patterns in the distance matrix
+        threshold = 0.26
+        k=0;
+        #This loop continues till the looping criteria is satisfied
+        while(k < length-2):
+            #the lowest pair is set to (0,1) i.e instance 1 and instance 2
+            lowestPair = (0,1);
+            # lowest distance is calculated by calling the function distance
+            lowest = self.distance(table[0][0] , table[0][1]);
+            #Loops throw the whole table and calculates the lowest distance and the lowest instance pair
+            for i in range(len(table)):
+                for j in range(i+1, len(table)):
+                    temp_lowDist = self.distance(table[i][i], table[i][j])
+                    if(temp_lowDist > lowest):
+                        lowest = temp_lowDist;
+                        lowestPair = (i,j)
+            #If the lowest distance is less than the threshold, merge the instances and update them in the clusters list.
+            if(lowest<threshold):
+                # calls the merge function, it merges the instances x and y in the table
+                table = self.merge(lowestPair[0] , lowestPair[1], table)
+                #calls the updateInClusterList function, so it updates the clusters after merging them
+                clusters = self.updateInClusterList(lowestPair[0], lowestPair[1], clusters);	
+            k = k+1;		
+        #All the clusters are formed till this point
+
+        #As we are using objects to communicate between other classes,
+       # adding few extra things to make the communication possible below
+
+        #Gets all the items from clusters
+        items = list(clusters.items())
+        #senseID is 0 initially
+        senseID = 0
+
+        #Create empty array of Sense objects
+        #If there are five clusters, it creates five senses
+        clusts = [Sense.Sense() for i in range(len(items))]
+        for i in range(0, len(items)):
+            #Going throw each and every cluster once at a time
+            #Assigning the senseID to the cluster
+            #clusts[i] stores the cluster of instances of sense i
+            clusts[i].senseID = senseID;
+            #clusterItems is a list: Getting the instances, which belong to particular sense
+            clusterItems = items[i][1]
+            for x in range(0, len(clusterItems)):
+                #Adding each instance in the list of clusterItems to the clust[i].instances
+                instItem = instances[clusterItems[x]]
+                 #clusts[i].instances stores all the instances of sense i
+                clusts[i].instances.append(instItem)
+            #Increment the senseID each time          
+            senseID += 1
+        return clusts
+
+
+
+    def hierarchical_clusteringUsingFastCluster(self, instances):
+
+        completeSenses = list()
+        # completeSenses is the list of clusters of all the senses. If a file has 5 senses. It stores all the 5 senses
+
+	    # table stores the distance matrix of instances
+        table = self.distanceMatrix(instances)
+        #Condensed the distance matrix of N*N size to a Nc2 array by using spatial distance from the module ‘Scipy’
+        distArray = ssd.squareform(table) 
+	    #Using the ‘fastcluster’ with method 'single'. We are passing the condensed array from the last step
+        Z = fastcluster.single(distArray)
+        # max_d is the threshold, set to 0.26
+        max_d = 0.26
+        #Generating clusters using fcluster by passing Z, threshold and the criteria is based on distance
+        fastClusters = fcluster(Z, max_d, criterion='distance')
+
+        # clusters is dictionary which stores the clusters, as they are formed.
+        #It is empty initially
+        clusters={}
+        #fastclusters is a list which looks like this:[1 2 1 2 2]
+       # Instance 1(index:0) belongs to cluster 1, instance 2(index:1) belongs to cluster 2, instance 3
+       #This for loop goes through the list of fastclusters, and group the instances which belong to the same sense.
+        for i in range(len(fastClusters)):
+            #Get the key located at that index i
+            key = fastClusters[i] - 1
+            if key in clusters.keys():
+                #If the cluster with a particular sense is already formed, just get the cluster
+                tempClust = clusters.get(fastClusters[i] - 1)
+                #Add the instance to the same cluster by appending it
+                tempClust.append(i)
+            else:
+                 #If the cluster with a particular sense is not already formed, create a cluster with new sense
+                tempClust = []
+                # Add the instance to the cluster by appending it
+                tempClust.append(i)
+            #Put the tempClust in to the clusters at the index key;
+            clusters[key] = tempClust;
+
+         #All the clusters are formed till this point
+        #As we are using objects to communicate between other classes,
+       # adding few extra things to make the communication possible below
+
+          #Gets all the items from clusters
+        items = list(clusters.items())
+        #senseID is 0 initially
+        senseID = 0
+
+        #Create empty array of Sense objects
+        #If there are five clusters, it creates five senses
+        clusts = [Sense.Sense() for i in range(len(items))]
+        for i in range(0, len(items)):
+            #Going throw each and every cluster once at a time
+            #Assigning the senseID to the cluster
+            #clusts[i] stores the cluster of instances of sense i
+            clusts[i].senseID = senseID;
+            #clusterItems is a list: Getting the instances, which belong to particular sense
+            clusterItems = items[i][1]
+            for x in range(0, len(clusterItems)):
+                #Adding each instance in the list of clusterItems to the clust[i].instances
+                instItem = instances[clusterItems[x]]
+                 #clusts[i].instances stores all the instances of sense i
+                clusts[i].instances.append(instItem)
+            #Increment the senseID each time          
+            senseID += 1
+        return clusts
+
+
